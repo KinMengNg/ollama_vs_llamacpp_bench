@@ -1,0 +1,60 @@
+services:
+  benchmark-ollama:
+    image: ollama/ollama:latest
+    runtime: nvidia
+    container_name: benchmark-ollama
+    network_mode: host
+    privileged: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11700
+    volumes:
+      - ./models/ollama:/root/.ollama
+
+  # This service runs once to pull the model and then stops
+  ollama-puller:
+    image: curlimages/curl
+    network_mode: host
+    restart: "no"
+    depends_on:
+      - benchmark-ollama
+    command: >
+      sh -c "sleep 10; curl http://localhost:11700/api/pull -d '{\"name\": \"qwen3-vl:8b-instruct\"}'"
+    
+  benchmark-llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    runtime: nvidia
+    container_name: benchmark-llamacpp
+    network_mode: host
+    privileged: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "11701:11701"
+    volumes:
+      - ./models:/models
+    environment:
+      - LLAMA_ARG_HOST=0.0.0.0
+    command: >
+      -m /models/Qwen3-VL-8B-Instruct-Q4_K_M.gguf
+      --mmproj /models/mmproj-F16.gguf
+      --port 11701
+      -c 8192
+      -ngl 999
+      -fa on
+      -cb
+      -b 4096
+      --ubatch-size 1024
+      -t 8
+      --no-mmap
